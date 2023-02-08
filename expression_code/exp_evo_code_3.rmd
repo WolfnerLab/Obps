@@ -1,0 +1,431 @@
+---
+title: "evo exp code"
+author: "Nora C. Brown, Benjamin Gordon, Caitlin E. McDonough-Goldstein, Snigdha Misra, Geoffrey D. Findlay, Andrew G. Clark, Mariana F. Wolfner"
+output: html_document
+---
+
+This is an R markdown document that contains code to generate an expression matrix from data from GSE99574 (RNAseq performed across Drosophila species from dissected tissues--Yang et al., 2018). This code is associated with the manuscript "The seminal odorant binding protein Obp56g is required for mating plug formation and male fertility in Drosophila melanogaster".
+
+Load packages
+```{r}
+library(tibble)
+library(ggpubr)
+library(dplyr)
+library(plyr)
+library(DESeq2)
+```
+
+Load additional functions
+```{r}
+#processing input files functions
+rownames.first <- function(object){
+object <- data.frame(object[,-1], row.names = object[,1])}
+
+byapply <- function(x, by, fun, ...)
+{
+# Create index list
+if (length(by) == 1)
+{
+nc <- ncol(x)
+split.index <- rep(1:ceiling(nc / by), each = by, length.out = nc)
+} else # 'by' is a vector of groups
+{
+nc <- length(by)
+split.index <- by
+}
+index.list <- split(seq(from = 1, to = nc), split.index)
+# Pass index list to fun using sapply() and return object
+sapply(index.list, function(i)
+{
+do.call(fun, list(x[, i], ...))
+})
+}
+```
+
+
+Downloaded the raw gene counts from Yang et al. data via the supplementary txt files all available here: https://www.ncbi.nlm.nih.gov/geo/browse/?view=samples&series=99574
+In the Yang et al. supplementary table 1 these files (with the extension "htseq_reverse.HiSAT2.FB.txt") are described as "gene-level read counts based on HiSAT2 alignments and FlyBase 2017_03 annotation"  
+```{r}
+#processing HiSAT files downloaded from GSE99574
+setwd("~/Clark_Wolfner/Papers/Obps/scriptsdata")
+files = list.files()
+myfiles = lapply(files,function(i){
+  read.delim(i, header=FALSE)})
+merged.files = Reduce(function(x, y) merge(x, y, all=TRUE, by=1), myfiles)
+
+names <- sub("\\..*", "", files)
+names <- c("FBgn", names)
+
+colnames(merged.files) <- names
+```
+
+Orthology tables (conversion of YO annotation to FBgn and melanogaster ortholog) also from from Yang et al., 2018 GSE 99574 (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE99574)
+```{r}
+#import orthology tables
+oliver.mel <- read.table("dmel.ortholog.txt", header=T, sep="\t")
+colnames(oliver.mel)  <- paste("mel", colnames(oliver.mel), sep = "_")
+oliver.yak <- read.table("dyak.ortholog.txt", header=T, sep="\t")
+colnames(oliver.yak)  <- paste("yak", colnames(oliver.yak), sep = "_")
+oliver.ana <- read.table("dana.ortholog.txt", header=T, sep="\t")
+colnames(oliver.ana)  <- paste("ana", colnames(oliver.ana), sep = "_")
+oliver.pse <- read.table("dpse.ortholog.txt", header=T, sep="\t")
+colnames(oliver.pse)  <- paste("pse", colnames(oliver.pse), sep = "_")
+oliver.per <- read.table("dper.ortholog.txt", header=T, sep="\t")
+colnames(oliver.per)  <- paste("per", colnames(oliver.per), sep = "_")
+oliver.wil <- read.table("dwil.ortholog.txt", header=T, sep="\t")
+colnames(oliver.wil)  <- paste("wil", colnames(oliver.wil), sep = "_")
+oliver.moj <- read.table("dmoj.ortholog.txt", header=T, sep="\t")
+colnames(oliver.moj)  <- paste("moj", colnames(oliver.moj), sep = "_")
+oliver.vir <- read.table("dvir.ortholog.txt", header=T, sep="\t")
+colnames(oliver.vir)  <- paste("vir", colnames(oliver.vir), sep = "_")
+
+oliver.orthologs <- full_join(oliver.mel, oliver.yak, by=c("mel_Dmel" = "yak_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.ana, by=c("mel_Dmel" = "ana_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.pse, by=c("mel_Dmel" = "pse_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.per, by=c("mel_Dmel" = "per_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.wil, by=c("mel_Dmel" = "wil_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.moj, by=c("mel_Dmel" = "moj_Dmel"))
+oliver.orthologs <- full_join(oliver.orthologs, oliver.vir, by=c("mel_Dmel" = "vir_Dmel"))
+```
+
+Create data frame for each species with counts for all organs, only include genes with a count > 0 in any sample 
+```{r}
+#find and sort species in merged.files
+#mel(w1118,orgR), yak, ana, pse, per, wil, moj, vir, gri
+
+w1118 <- merged.files[ , grepl( pattern = 'FBgn|w1118', names( merged.files ) ) ]
+w1118 <- subset(w1118, rowSums(w1118[,c(2:65)])>0) #64 samples which sounds right
+
+orgR <- merged.files[ , grepl( pattern = 'FBgn|orgR', names( merged.files ) ) ]
+orgR <- subset(orgR, rowSums(orgR[,c(2:65)])>0) 
+
+mel <- full_join(w1118, orgR, by=c("FBgn"))
+write.table(mel, "mel.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+yak <- merged.files[ , grepl( pattern = 'FBgn|yak', names( merged.files ) ) ]
+yak <- subset(yak, rowSums(yak[,c(2:57)])>0) 
+write.table(yak, "yak.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+ana <- merged.files[ , grepl( pattern = 'FBgn|ana', names( merged.files ) ) ]
+ana <- subset(ana, rowSums(ana[,c(2:57)])>0)
+write.table(ana, "ana.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+pse <- merged.files[ , grepl( pattern = 'FBgn|pse', names( merged.files ) ) ]
+pse <- subset(pse, rowSums(pse[,c(2:57)])>0) 
+write.table(pse, "pse.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+per <- merged.files[ , grepl( pattern = 'FBgn|per', names( merged.files ) ) ]
+per <- subset(per, rowSums(per[,c(2:57)])>0) 
+write.table(per, "[er.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+wil <- merged.files[ , grepl( pattern = 'FBgn|wil', names( merged.files ) ) ]
+wil <- subset(wil, rowSums(wil[,c(2:57)])>0) 
+write.table(wil, "wil.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+moj <- merged.files[ , grepl( pattern = 'FBgn|moj', names( merged.files ) ) ]
+moj <- subset(moj, rowSums(moj[,c(2:57)])>0) 
+write.table(moj, "moj.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+
+vir <- merged.files[ , grepl( pattern = 'FBgn|vir', names( merged.files ) ) ]
+vir <- subset(vir, rowSums(vir[,c(2:57)])>0) 
+write.table(vir, "vir.raw.txt", sep="\t", col.names = TRUE, row.names = F)
+```
+
+Standardize colnnames and metadata for all species
+```{r}
+#make general metadata for each species and tissue
+sample.info.tissue <- function(df.coldata){
+                        ifelse(grepl("WB", df.coldata$samples), "WholeBody",
+                        ifelse(grepl("GO", df.coldata$samples), "Gonad",
+                        ifelse(grepl("DG", df.coldata$samples), "Digestive",
+                        ifelse(grepl("HD", df.coldata$samples), "Head",
+                        ifelse(grepl("GE", df.coldata$samples), "Genitalia",
+                        ifelse(grepl("RE", df.coldata$samples), "Reproductive",
+                        ifelse(grepl("AC", df.coldata$samples), "Abodomen",
+                        ifelse(grepl("TX", df.coldata$samples), "Thorax", "NA"))))))))}
+
+
+w1118.coldata <- data.frame (c(colnames(w1118[c(2:65)])))
+colnames(w1118.coldata) <- "samples"
+w1118.coldata$sex <- ifelse(grepl("_f_", w1118.coldata$samples), "Female", "Male")
+w1118.coldata$tissue <- sample.info.tissue(w1118.coldata)
+w1118.coldata <- w1118.coldata[
+  with(w1118.coldata, order(tissue,sex)),]
+w1118 <- w1118[ , c("FBgn", w1118.coldata$samples)]  
+
+
+orgR.coldata <- data.frame (c(colnames(orgR[c(2:65)])))
+colnames(orgR.coldata) <- "samples"
+orgR.coldata$sex <- ifelse(grepl("_f_", orgR.coldata$samples), "Female", "Male")
+orgR.coldata$tissue <- sample.info.tissue(orgR.coldata)
+orgR.coldata <- orgR.coldata[
+  with(orgR.coldata, order(tissue,sex)),]
+orgR <- orgR[ , c("FBgn",orgR.coldata$samples)]  
+
+
+yak.coldata <- data.frame (c(colnames(yak[c(2:57)])))
+colnames(yak.coldata) <- "samples"
+yak.coldata$sex <- ifelse(grepl("_f_", yak.coldata$samples), "Female", "Male")
+yak.coldata$tissue <- sample.info.tissue(yak.coldata)
+yak.coldata <- yak.coldata[
+  with(yak.coldata, order(tissue,sex)),]
+yak <- yak[ , c("FBgn",yak.coldata$samples)]  
+
+ana.coldata <- data.frame (c(colnames(ana[c(2:57)])))
+colnames(ana.coldata) <- "samples"
+ana.coldata$sex <- ifelse(grepl("_f_", ana.coldata$samples), "Female", "Male")
+ana.coldata$tissue <- sample.info.tissue(ana.coldata)
+ana.coldata <- ana.coldata[
+  with(ana.coldata, order(tissue,sex)),]
+ana <- ana[ , c("FBgn",ana.coldata$samples)]  
+
+per.coldata <- data.frame (c(colnames(per[c(2:57)])))
+colnames(per.coldata) <- "samples"
+per.coldata$sex <- ifelse(grepl("_f_", per.coldata$samples), "Female", "Male")
+per.coldata$tissue <- sample.info.tissue(per.coldata)
+per.coldata <- per.coldata[
+  with(per.coldata, order(tissue,sex)),]
+per <- per[ , c("FBgn",per.coldata$samples)]  
+
+pse.coldata <- data.frame (c(colnames(pse[c(2:57)])))
+colnames(pse.coldata) <- "samples"
+pse.coldata$sex <- ifelse(grepl("_f_", pse.coldata$samples), "Female", "Male")
+pse.coldata$tissue <- sample.info.tissue(pse.coldata)
+pse.coldata <- pse.coldata[
+  with(pse.coldata, order(tissue,sex)),]
+pse <- pse[ , c("FBgn",pse.coldata$samples)]  
+
+wil.coldata <- data.frame (c(colnames(wil[c(2:57)])))
+colnames(wil.coldata) <- "samples"
+wil.coldata$sex <- ifelse(grepl("_f_", wil.coldata$samples), "Female", "Male")
+wil.coldata$tissue <- sample.info.tissue(wil.coldata)
+wil.coldata <- wil.coldata[
+  with(wil.coldata, order(tissue,sex)),]
+wil <- wil[ , c("FBgn",wil.coldata$samples)]  
+
+moj.coldata <- data.frame (c(colnames(moj[c(2:57)])))
+colnames(moj.coldata) <- "samples"
+moj.coldata$sex <- ifelse(grepl("_f_", moj.coldata$samples), "Female", "Male")
+moj.coldata$tissue <- sample.info.tissue(moj.coldata)
+moj.coldata <- moj.coldata[
+  with(moj.coldata, order(tissue,sex)),]
+moj <- moj[ , c("FBgn",moj.coldata$samples)]  
+
+vir.coldata <- data.frame (c(colnames(vir[c(2:57)])))
+colnames(vir.coldata) <- "samples"
+vir.coldata$sex <- ifelse(grepl("_f_", vir.coldata$samples), "Female", "Male")
+vir.coldata$tissue <- sample.info.tissue(vir.coldata)
+vir.coldata <- vir.coldata[
+  with(vir.coldata, order(tissue,sex)),]
+vir <- vir[ , c("FBgn",vir.coldata$samples)] 
+```
+
+Use DEseq2 to normalize expression for each species as described in Yang et al. 2018 (and see https://github.com/haiwangyang/transana)
+
+Note: these normalizations result in the same files as those listed on the GEO (GSE99574) with the file names "nrc.FB.txt"
+```{r}
+#calculate normalized read counts for each species
+w1118.norm <- rownames.first(w1118)
+w1118.norm <- as.matrix(w1118.norm)
+part_dds = DESeqDataSetFromMatrix(w1118.norm, w1118.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+w1118.norm <- log(part_normCounts +1,2)
+
+orgR.norm <- rownames.first(orgR)
+orgR.norm <- as.matrix(orgR.norm)
+part_dds = DESeqDataSetFromMatrix(orgR.norm, orgR.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+orgR.norm <- log(part_normCounts +1,2)
+
+yak.norm <- rownames.first(yak)
+yak.norm <- as.matrix(yak.norm)
+part_dds = DESeqDataSetFromMatrix(yak.norm, yak.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+yak.norm <- log(part_normCounts +1,2)
+
+ana.norm <- rownames.first(ana)
+ana.norm <- as.matrix(ana.norm)
+part_dds = DESeqDataSetFromMatrix(ana.norm, ana.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+ana.norm <- log(part_normCounts +1,2)
+
+pse.norm <- rownames.first(pse)
+pse.norm <- as.matrix(pse.norm)
+part_dds = DESeqDataSetFromMatrix(pse.norm, pse.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+pse.norm <- log(part_normCounts +1,2)
+
+per.norm <- rownames.first(per)
+per.norm <- as.matrix(per.norm)
+part_dds = DESeqDataSetFromMatrix(per.norm, per.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+per.norm <- log(part_normCounts +1,2)
+
+wil.norm <- rownames.first(wil)
+wil.norm <- as.matrix(wil.norm)
+part_dds = DESeqDataSetFromMatrix(wil.norm, wil.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+wil.norm <- log(part_normCounts +1,2)
+
+moj.norm <- rownames.first(moj)
+moj.norm <- as.matrix(moj.norm)
+part_dds = DESeqDataSetFromMatrix(moj.norm, moj.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+moj.norm <- log(part_normCounts +1,2)
+
+vir.norm <- rownames.first(vir)
+vir.norm <- as.matrix(vir.norm)
+part_dds = DESeqDataSetFromMatrix(vir.norm, vir.coldata, design=~sex+tissue)
+part_dds = estimateSizeFactors(part_dds)
+part_normCounts = counts(part_dds, normalized=TRUE)
+vir.norm <- log(part_normCounts +1,2)
+```
+
+calculate average expression for melanogaster (both for each mel strain separetly and averaging across both strains w1118 and oreR)
+avg averages expresion in each tissue/sex separately
+avg2 averages the sexes together for somatic tissues (ac, dg, hd, tx, wb) and separately for reproductive tissues (ge, go)
+```{r}
+#average across 2 strains of dmel (w1118 and oreR)
+mel.w118 <- data.frame(w1118.norm)
+mel.w118.avg <- data.frame(byapply(mel.w118, 4, rowMeans))
+colnames(mel.w118.avg) <- c("f_ac","m_ac", "f_dg","m_dg","f_ge", "m_ge","f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb","m_wb")
+colnames(mel.w118.avg) <- paste("mel.w118", colnames(mel.w118.avg), sep = "_")
+
+mel.oreR <- data.frame(orgR.norm)
+mel.oreR.avg <- data.frame(byapply(mel.oreR, 4, rowMeans))
+colnames(mel.oreR.avg) <- c("f_ac","m_ac", "f_dg","m_dg","f_ge", "m_ge","f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb","m_wb")
+colnames(mel.oreR.avg) <- paste("mel.oreR", colnames(mel.oreR.avg), sep = "_")
+
+mel.strain.avg <- full_join(rownames_to_column(mel.w118.avg), rownames_to_column(mel.oreR.avg))
+mel.strain.avg <- rownames.first(mel.strain.avg)
+mel.strain.avg <- data.frame(cbind(rowMeans(mel.strain.avg[,c(1,17)]),rowMeans(mel.strain.avg[,c(2,18)]),rowMeans(mel.strain.avg[,c(3,19)]),rowMeans(mel.strain.avg[,c(4,20)]), rowMeans(mel.strain.avg[,c(5,21)]),rowMeans(mel.strain.avg[,c(6,22)]),rowMeans(mel.strain.avg[,c(7,23)]),rowMeans(mel.strain.avg[,c(8,24)]),rowMeans(mel.strain.avg[,c(9,25)]),rowMeans(mel.strain.avg[,c(10,26)]),rowMeans(mel.strain.avg[,c(11,27)]),rowMeans(mel.strain.avg[,c(12,28)]),rowMeans(mel.strain.avg[,c(13,29)]),rowMeans(mel.strain.avg[,c(14,30)]),rowMeans(mel.strain.avg[,c(15,31)]),rowMeans(mel.strain.avg[,c(16,32)])))
+colnames(mel.strain.avg) <- c("f_ac","m_ac", "f_dg","m_dg","f_ge", "m_ge","f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb","m_wb")
+colnames(mel.strain.avg) <- paste("mel.strain", colnames(mel.strain.avg), sep = "_")
+
+mel.strain.avg$mel_FBgn <- rownames(mel.strain.avg)
+```
+
+calculate average expression for all other species
+avg averages expresion in each tissue/sex separately
+avg2 averages the sexes together for somatic tissues (ac, dg, hd, tx, wb) and separately for reproductive tissues (ge, go)
+```{r}
+
+######### yak #########
+
+yak.avg <- yak.norm
+yak.avg <- data.frame(byapply(yak.avg, 4, rowMeans))
+colnames(yak.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb","m_wb")
+colnames(yak.avg) <- paste("yak", colnames(yak.avg), sep = "_")
+
+yak.avg$yak_FBgn <- rownames(yak.avg)
+yak.avg <- right_join(oliver.yak, yak.avg, by=c("yak_FBgnID" = "yak_FBgn"))
+
+######### ana #########
+
+ana.avg <- ana.norm
+ana.avg <- data.frame(byapply(ana.avg, 4, rowMeans))
+colnames(ana.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(ana.avg) <- paste("ana", colnames(ana.avg), sep = "_")
+
+ana.avg$ana_FBgn <- rownames(ana.avg)
+ana.avg <- right_join(oliver.ana, ana.avg, by=c("ana_FBgnID" = "ana_FBgn"))
+
+######### pse #########
+
+pse.avg <- pse.norm
+pse.avg <- data.frame(byapply(pse.avg, 4, rowMeans))
+colnames(pse.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(pse.avg) <- paste("pse", colnames(pse.avg), sep = "_")
+
+pse.avg$pse_FBgn <- rownames(pse.avg)
+pse.avg <- right_join(oliver.pse, pse.avg, by=c("pse_FBgnID" = "pse_FBgn"))
+
+######### per #########
+
+per.avg <- per.norm
+per.avg <- data.frame(byapply(per.avg, 4, rowMeans))
+colnames(per.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(per.avg) <- paste("per", colnames(per.avg), sep = "_")
+
+per.avg$per_FBgn <- rownames(per.avg)
+per.avg <- right_join(oliver.per, per.avg, by=c("per_FBgnID" = "per_FBgn"))
+
+######### wil #########
+
+wil.avg <- wil.norm
+wil.avg <- data.frame(byapply(wil.avg, 4, rowMeans))
+colnames(wil.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(wil.avg) <- paste("wil", colnames(wil.avg), sep = "_")
+
+wil.avg$wil_FBgn <- rownames(wil.avg)
+wil.avg <- right_join(oliver.wil, wil.avg, by=c("wil_FBgnID" = "wil_FBgn"))
+
+######### moj #########
+
+moj.avg <- moj.norm
+moj.avg <- data.frame(byapply(moj.avg, 4, rowMeans))
+colnames(moj.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(moj.avg) <- paste("moj", colnames(moj.avg), sep = "_")
+
+moj.avg$moj_FBgn <- rownames(moj.avg)
+moj.avg <- right_join(oliver.moj, moj.avg, by=c("moj_FBgnID" = "moj_FBgn"))
+
+######### vir #########
+
+vir.avg <- vir.norm
+vir.avg <- data.frame(byapply(vir.avg, 4, rowMeans))
+colnames(vir.avg) <- c("f_ac","m_ac", "f_dg","m_dg", "f_go","m_go", "f_hd","m_hd", "f_re", "m_re", "f_tx","m_tx", "f_wb",       "m_wb")
+colnames(vir.avg) <- paste("vir", colnames(vir.avg), sep = "_")
+
+vir.avg$vir_FBgn <- rownames(vir.avg)
+vir.avg <- right_join(oliver.vir, vir.avg, by=c("vir_FBgnID" = "vir_FBgn"))
+```
+
+Create file with averages of all species together 
+```{r}
+#make big table of all.avg expression
+yak.avg$yak_Dmel <- as.character(yak.avg$yak_Dmel)
+yak.avg$yak_Dmel[is.na(yak.avg$yak_Dmel)] <- "yak"
+avg.all <- full_join(mel.strain.avg[,c(17,1:16)], yak.avg, by=c("mel_FBgn" = "yak_Dmel"))
+
+ana.avg$ana_Dmel <- as.character(ana.avg$ana_Dmel)
+ana.avg$ana_Dmel[is.na(ana.avg$ana_Dmel)] <- "ana"
+avg.all <- full_join(avg.all, ana.avg, by=c("mel_FBgn" = "ana_Dmel"))
+
+pse.avg$pse_Dmel <- as.character(pse.avg$pse_Dmel)
+pse.avg$pse_Dmel[is.na(pse.avg$pse_Dmel)] <- "pse"
+avg.all <- full_join(avg.all, pse.avg, by=c("mel_FBgn" = "pse_Dmel"))
+
+per.avg$per_Dmel <- as.character(per.avg$per_Dmel)
+per.avg$per_Dmel[is.na(per.avg$per_Dmel)] <- "per"
+avg.all <- full_join(avg.all, per.avg, by=c("mel_FBgn" = "per_Dmel"))
+
+wil.avg$wil_Dmel <- as.character(wil.avg$wil_Dmel)
+wil.avg$wil_Dmel[is.na(wil.avg$wil_Dmel)] <- "wil"
+avg.all <- full_join(avg.all, wil.avg, by=c("mel_FBgn" = "wil_Dmel"))
+
+moj.avg$moj_Dmel <- as.character(moj.avg$moj_Dmel)
+moj.avg$moj_Dmel[is.na(moj.avg$moj_Dmel)] <- "moj"
+avg.all <- full_join(avg.all, moj.avg, by=c("mel_FBgn" = "moj_Dmel"))
+
+vir.avg$vir_Dmel <- as.character(vir.avg$vir_Dmel)
+vir.avg$vir_Dmel[is.na(vir.avg$vir_Dmel)] <- "vir"
+avg.all <- full_join(avg.all, vir.avg, by=c("mel_FBgn" = "vir_Dmel"))
+
+avg.all<- avg.all[,c(1,19,35,51,67,83,99,115, 2:17, 20:33, 36:49, 52:65, 68:81, 84:97, 100:113, 116:129)]
+
+```
+
+```{r}
+#save file
+write.csv(avg.all, "~/Clark_Wolfner/Papers/Obps/scriptsdata/avg.all.csv")
+```
+
