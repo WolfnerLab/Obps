@@ -1,0 +1,122 @@
+---
+title: "heatmap code"
+author: "Nora C. Brown, Benjamin Gordon, Caitlin E. McDonough-Goldstein, Snigdha Misra, Geoffrey D. Findlay, Andrew G. Clark, Mariana F. Wolfner"
+output: html_document
+---
+
+This is an R markdown document to generate heatmaps from expression data from GSE99574 (RNAseq performed across Drosophila species from dissected tissues--Yang et al., 2018). This code is associated with the manuscript "The seminal odorant binding protein Obp56g is required for mating plug formation and male fertility in Drosophila melanogaster".
+---
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+#first step to make the heatmap is pull out the obp genes from the table of averaged counts
+#input file is avg.all.csv from exp_evo_code_3.Rmd file
+#create a column with gene names and annotate obps and orthologs of interest
+avg.all$name <- NA
+
+#obp56e has a one to many orthology with obp56d. Using BLAST and synteny we determined the specific orthologs for obp56e and pulled each out.
+
+avg.all$name <- ifelse(grepl("FBgn0034471", avg.all$mel_FBgn) | 
+                         grepl("FBgn0068110", avg.all$yak_FBgnID) | 
+                         grepl("FBgn0081084", avg.all$pse_FBgnID) | 
+                         grepl("FBgn0088775", avg.all$ana_FBgnID) |
+                         grepl("FBgn0147969", avg.all$per_FBgnID) |
+                         grepl("FBgn0217694", avg.all$wil_FBgnID) |
+                         grepl("FBgn0143815", avg.all$moj_FBgnID) |
+                         grepl("FBgn0208068", avg.all$vir_FBgnID),
+                   "Obp56e", avg.all$name)
+
+#pull out rest of the obp sfp genes
+avg.all$name = ifelse(grepl("FBgn0030103", avg.all$mel_FBgn), "Obp8a", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0043539", avg.all$mel_FBgn), "Obp22a", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0043533", avg.all$mel_FBgn), "Obp56f", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0034474", avg.all$mel_FBgn), "Obp56g", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0043532", avg.all$mel_FBgn), "Obp56i", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0043530", avg.all$mel_FBgn), "Obp51a", avg.all$name)
+
+#pull out yakuba specific genes
+avg.all$name = ifelse(grepl("FBgn0277014", avg.all$yak_FBgnID), "Obp51a-3_Acp157a", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0276688", avg.all$yak_FBgnID), "Obp51a-2", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0276012", avg.all$yak_FBgnID), "Obp56e-1_Acp223", avg.all$name)
+
+#pull out willistoni specific copies of obp56g
+avg.all$name = ifelse(grepl("FBgn0217690", avg.all$wil_FBgnID), "Obp56g-1", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0217897", avg.all$wil_FBgnID), "Obp56g-3", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0217898", avg.all$wil_FBgnID), "Obp56g-4", avg.all$name)
+avg.all$name = ifelse(grepl("FBgn0217691", avg.all$wil_FBgnID), "Obp56g-5", avg.all$name)
+
+#remove FBgn numbers and subset for only obp of interest
+allobps <- avg.all[,c(123,9:123)]
+allobps <- allobps[!is.na(allobps$name),]
+
+#put the different ortholog entries for obp56e together into one row
+allobps <- allobps %>% 
+  group_by(name) %>% 
+  fill(mel.strain_f_ac:vir_m_wb)
+
+allobps <- allobps %>%
+  arrange(rowSums(is.na(.))) %>%        # sort rows by number of NAs
+  distinct(name, .keep_all = TRUE)
+
+# Reorder data frame
+obp.order <- c("Obp8a", "Obp22a", "Obp51a", "Obp51a-2", "Obp51a-3_Acp157a", "Obp56e", "Obp56e-1_Acp223", "Obp56f", "Obp56g", "Obp56g-1", "Obp56g-3", "Obp56g-4", "Obp56g-5", "Obp56i")
+allobps <- allobps[match(obp.order, allobps$name), ] 
+
+
+write.csv(allobps, "~/sfp_obps.csv")
+
+```
+
+```{r}
+#subset out male RE tissues and make heatmap
+#orthopara_obps.csv contains paralog/ortholog info for column annotation
+obpsfps = read.csv("~/sfp_obps.csv", row.names = 1)
+rownames(obpsfps) <- obpsfps[,1]
+
+male.re.all = subset(obpsfps, select=c("mel.strain_m_re", "yak_m_re", "ana_m_re", "pse_m_re", "per_m_re", "wil_m_re", "moj_m_re", "vir_m_re"))
+
+col_annot = read.csv("~/orthopara_obps.csv")
+rownames(col_annot) <- col_annot[,1]
+
+cols = colorRampPalette(brewer.pal(9,"Blues"))(100)
+pheatmap(
+  mat               = t(male.re.all),
+  border_color      = NA,
+  color             = cols,
+  show_colnames     = TRUE,
+  show_rownames     = TRUE,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  fontsize_row          = 8,
+  fontsize_col = 4.5, 
+  annotation_col = col_annot,
+  filename = "male_re.pdf")
+```
+
+```{r}
+#repeat for male head tissues
+male.hd.all = subset(obpsfps, select=c("mel.strain_m_hd", "yak_m_hd", "ana_m_hd", "pse_m_hd", "per_m_hd", "wil_m_hd", "moj_m_hd", "vir_m_hd"))
+
+col_annot = read.csv("~/Nora/orthopara_obps.csv")
+rownames(col_annot) <- col_annot[,1]
+
+cols = colorRampPalette(brewer.pal(9,"Blues"))(100)
+pheatmap(
+  mat               = t(male.hd.all),
+  border_color      = NA,
+  color             = cols,
+  show_colnames     = TRUE,
+  show_rownames     = TRUE,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  fontsize_row          = 8,
+  fontsize_col = 4.5, 
+  annotation_col = col_annot,
+  filename = "male_head.pdf")
+```
+
