@@ -19,7 +19,7 @@ e_tot: sum of eggs in d_1 through d_4
 mated: Y/N if that female mated with a CS male on the fourth day after mating within a one hour time frame
 p_1 through p_4: number of pupae in vials days 1-4
 p_tot: sum of pupae in p_1 through p_4
-hatch_t: total hatchability, p_t/d_t
+hatch_t: total hatchability, p_t/d_t (only measured for reps 1 & 2)
 h_1 through h_4: hatchabillity of eggs on days 1-4, calculated as ex: p_1/d_1
 lat: latency to mate, calculated as time_start-intro (note: not measured for replicate 1)
 dur: duration of mating, calculated as time_stop-time_start
@@ -35,259 +35,136 @@ library(chron)
 library(emmeans)
 library(nationalparkcolors)
 library(tidyr)
+library(ggbeeswarm)
+library(forcats)
 ```
 
 
 ```{r}
 #import data
-df2r_data = read.csv("Df2R_data.csv")
+df2r_data = read.csv("~/Df2R_data.csv")
 
+#reorder levels within male genotype 
 df2r_data$male_geno <- factor(df2r_data$male_geno, levels = c("Df/WT", "WT/CyO", "Obp56g/CyO", "Obp56g/Df"))
 
-#subset replicates
-rep1df = subset(df2r_data, df2r_data$rep == "1")
-rep2df = subset(df2r_data, df2r_data$rep == "2")
+#set replicate as a factor
+df_all$rep=as.factor(df_all$rep)
+
 ```
 
 ```{r}
-##replicate one
-#get data in "long form" for graphing egg by day
-rep1df_egg = rep1df %>%
+#get data in "long form" for graphing egg by day & for linear model
+df_all_long = df2r_data %>%
   pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
 
-plot = ggplot(data=rep1df_egg, 
-       aes(x=male_geno, 
-           y=eggs, color=male_geno, fill=male_geno)) + 
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.6, position=position_dodge(1), alpha = 0.75) + 
-  facet_grid(. ~ day, scales="free_x", space='free_x', labeller=label_both) +
-  labs(x="Male Genotype", y="Eggs Laid")+
+#plot egg lay
+p1 = ggplot(data = df_all_long,
+            aes(x=factor(male_geno, levels=c("Df/WT", "WT/CyO", "Obp56g/CyO", "Obp56g/Df")), y=eggs, color=male_geno)) + 
+  labs(x="Day", y="Eggs Laid") + 
+  facet_grid(~day) + 
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey")) +
+  geom_quasirandom(dodge.width=.9,alpha=.4) + 
+  expand_limits(x = 1, y=80) + 
   theme_classic()+
-  expand_limits(x = 1, y=80) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  theme(panel.spacing = unit(1, "lines")) + 
+  theme(panel.spacing = unit(0.01, "cm")) + 
   theme(strip.text.x = element_text(colour = "black")) +
   theme(strip.background = element_blank()) 
-  geom_jitter(position=position_dodge(1))
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.05, size=0.4) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing = unit(2, "lines")) 
-
-p
-
-#linear model egg lay
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=rep1df_egg)
-summary(model1)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=rep1df_egg)
-summary(model2)
-anova(model2, model1)
-
-#emmeans to compare marginal means, add male_geno*day interaction term
-model3 = glmer(eggs ~ male_geno*day + (1|vial), family=poisson, data=rep1df_egg)
-emmeans(model3, pairwise ~ male_geno | day)
-```
-
-```{r}
-#hatchability rep 1
-#pivot longer
-rep1df_hatch = rep1df %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-
-plot = ggplot(data=rep1df_hatch, 
-       aes(x=male_geno, 
-           y=hatch, 
-           fill=male_geno)) + 
-  geom_boxplot() +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill="black") + 
-  facet_grid(. ~ day) +
-  labs(x="Male Genotype", y="Egg Hatchability")+
-  theme_bw()+
-  theme(axis.title.y = element_text(size=18), axis.title.x = element_text(size=18), axis.text.y  = element_text(size=18),
-           axis.text.x  = element_text(size=18), strip.text.x = element_text(size = 20))+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  guides(fill=F)
-
-plot
-
-#linear model hatchability
-model4 = glmer(p_tot/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=rep1df_hatch)
-summary(model4)
-model5 = glmer(p_tot/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=rep1df_hatch)
-summary(model5)
-anova(model4, model5)
-
-#emmeans to compare estimated marginal means, add male_geno*day interaction term
-model6 = glmer(p_tot/e_tot ~ male_geno*day + (1|vial), family=binomial, weights=e_tot, data=rep1df_hatch)
-emmeans(model6, pairwise ~ male_geno | day)
-```
-
-```{r}
-#receptivity rep1
-#make proportion table to see proportion of females that remated @ 4 days. 
-table1 = table(rep1df$mated, rep1df$male_geno)
-table1
-prop_table1 = prop.table(table(rep1df$mated, rep1df$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-table2 = table(rep1df$male_geno, rep1df$mated)
-table2
-
-prop_table2 = prop.table(table(rep1df$male_geno, rep1df$mated), 1)
-prop_table2
-
-prop2 = apply(prop_table2, 2, function(x){x*100})
-prop2
-
-plot2 = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Female Remating Rate (%)", legend=rownames(prop1))
-plot2
-```
-
-```{r}
-#mating duration rep1
-#did not measure latency in rep1
-duration2 = 60*24*(as.numeric(times(rep1df$dur)))
-rep1df = cbind(rep1df, duration2)
-
-res.aov <- aov(duration2 ~ male_geno, data = rep1df)
-# Summary of the analysis and post hoc tukey
-summary(res.aov)
-TukeyHSD(res.aov)
-```
-
-```{r}
-##replicate two
-#get data in "long form" for graphing egg by day
-rep2df_egg = rep2df %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-
-plot = ggplot(data=rep2df_egg, 
-       aes(x=male_geno, 
-           y=eggs, color=male_geno, fill=male_geno)) + 
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.6, position=position_dodge(1), alpha = 0.75) + 
-  facet_grid(. ~ day, scales="free_x", space='free_x', labeller=label_both) +
-  labs(x="Male Genotype", y="Eggs Laid")+
-  theme_classic()+
-  expand_limits(x = 1, y=80) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank()) 
-  geom_jitter(position=position_dodge(1))
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.05, size=0.4) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing = unit(2, "lines")) 
   
-p
+p1 + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.3, size=0.6) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing=unit(2, "lines"))
 
 #linear model egg lay
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=rep2df_egg)
+df_all_long$day = as.factor(df_all_long$day)
+model1 = glmer(eggs ~ male_geno + day  + (1|rep) + (1|vial), family=poisson, data=df_all_long, glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
 summary(model1)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=rep2df_egg)
+model2 = glmer(eggs ~ day  + (1|rep) + (1|vial), family = poisson, data=df_all_long, glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
 summary(model2)
 anova(model2, model1)
 
 #emmeans to compare marginal means, add male_geno*day interaction term
-model3 = glmer(eggs ~ male_geno*day + (1|vial), family=poisson, data=rep2df_egg)
+model3 = glmer(eggs ~ male_geno + day  + male_geno*day + (1|rep) + (1|vial), family=poisson, data=df_all_long, glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
 emmeans(model3, pairwise ~ male_geno | day)
 ```
 
-```{r}
-#hatchability rep 2
-#pivot longer
-rep2df_hatch = rep2df %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-
-plot = ggplot(data=rep2df_hatch, 
-       aes(x=male_geno, 
-           y=hatch, 
-           fill=male_geno)) + 
-  geom_boxplot() +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill="black") + 
-  facet_grid(. ~ day) +
-  labs(x="Male Genotype", y="Egg Hatchability")+
-  theme_bw()+
-  theme(axis.title.y = element_text(size=18), axis.title.x = element_text(size=18), axis.text.y  = element_text(size=18),
-           axis.text.x  = element_text(size=18), strip.text.x = element_text(size = 20))+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  guides(fill=F)
-
-plot
-
-#linear model hatchability
-model4 = glmer(p_tot/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=rep2df_hatch)
-summary(model4)
-model5 = glmer(p_tot/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=rep2df_hatch)
-summary(model5)
-anova(model4, model5)
-
-#emmeans to compare estimated marginal means, add male_geno*day interaction term
-model6 = glmer(p_tot/e_tot ~ male_geno*day + (1|vial), family=binomial, weights=e_tot, data=rep2df_hatch)
-emmeans(model6, pairwise ~ male_geno | day)
-```
 
 ```{r}
-#receptivity rep2 
+#remating rates
 #make proportion table to see proportion of females that remated @ 4 days. 
-table1 = table(rep2df$mated, rep2df$male_geno)
-table1
-prop_table1 = prop.table(table(rep2df$mated, rep2df$male_geno), 2)
-prop_table1
+tab1 = table(df_all$male_geno, df_all$mated)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+pairwise_fisher_test(tab1)
 
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-table2 = table(rep2df$male_geno, rep2df$mated)
-table2
-
-prop_table2 = prop.table(table(rep2df$male_geno, rep2df$mated), 1)
-prop_table2
-
-prop2 = apply(prop_table2, 2, function(x){x*100})
-prop2
-
-plot2 = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Female Remating Rate (%)", legend=rownames(prop1))
-plot2
+#make plot
+df_recep=read.csv("~/df_recep.csv")
+ggplot(df_recep, aes(y=number, x=factor(male_geno, levels=c("Df/WT", "CyO/WT", "Obp56g/CyO", "Obp56g/Df")), fill=recep)) + 
+    geom_bar(position="fill", stat="identity") +
+    labs(x="Male Genotype", y="Proportion of females", fill="Remated?")+
+  theme_classic()+
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme(strip.text.x = element_text(colour = "black")) +
+  theme(strip.background = element_blank())
 ```
 
 ```{r}
-#mating latency and duration rep2
-latency2 = 60*24*(as.numeric(times(rep2df$lat)))
-rep2df = cbind(rep2df, latency2)
-duration2 = 60*24*(as.numeric(times(rep2df$dur)))
-rep2df = cbind(rep2df, duration2)
+#mating duration
+dur2 = 60*24*(as.numeric(times(df_all$dur)))
+df_all = cbind(df_all, dur2)
 
-res.aov <- aov(latency2 ~ male_geno, data = rep2df)
-# Summary of the analysis and post hoc tukey
-summary(res.aov)
-TukeyHSD(res.aov)
+#mating latency
+lat2 = 60*24*(as.numeric(times(df_all$lat)))
+df_all = cbind(df_all, lat2)
 
-res.aov <- aov(duration2 ~ male_geno, data = rep2df)
-# Summary of the analysis and post hoc tukey
-summary(res.aov)
-TukeyHSD(res.aov)
+#linear model to test duration & latency differences
+model1 = lmer(dur2 ~ male_geno + (1|rep), data=df_all)
+summary(model1)
+model2 = lmer(dur2 ~ (1|rep), data=df_all)
+anova(model1, model2)
+
+model1 = lmer(lat2 ~ male_geno + (1|rep), data=df_all)
+summary(model1)
+model2 = lmer(lat2 ~ (1|rep), data=df_all)
+anova(model1, model2)
+
+#emmeans
+model1 = lmer(dur2 ~ male_geno + (1|rep), data=df_all)
+emmeans(model1, pairwise ~ male_geno)
+
+model1 = lmer(lat2 ~ male_geno + (1|rep), data=df_all)
+emmeans(model1, pairwise ~ male_geno)
+
+#duration plot
+p1 = ggplot(data = df_all,
+            aes(x=factor(male_geno, levels=c("Df/WT", "WT/CyO", "Obp56g/CyO", "Obp56g/Df")), y=dur2, color=male_geno)) + 
+  labs(x="Male Genotype", y="Mating Duration") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey")) + 
+  geom_quasirandom(dodge.width=.9,alpha=.4, size=1.7) 
+  
+p1 + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.05, size=0.4) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing=unit(2, "lines"))
+
+#latency plot
+p1 = ggplot(data = df_all,
+            aes(x=factor(male_geno, levels=c("Df/WT", "WT/CyO", "Obp56g/CyO", "Obp56g/Df")), y=lat2, color=male_geno)) + 
+  labs(x="Male Genotype", y="Mating Latency") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey")) + 
+  geom_quasirandom(alpha=.4, size=1.7)
+  
+p1 + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.05, size=0.4) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing=unit(2, "lines"))
+
 ```
 
-##CRISPR mating assays
+##CRISPR mating assays (CyO/KO comparison)
 Definition of variables:
 vial: vial CS female is put into
 replicate: replicate of experiment
@@ -307,1125 +184,901 @@ h_1 through h_4: hatchabillity of eggs on days 1-4, calculated as ex: p_1/d_1
 hatch_tot: total hatchability, pup_t/e_tot
 
 ```{r}
-#replicate one
-crispr_comb = read.csv("crispr_combined.csv")
+#read in data
+data_comb = read.csv("~/crispr_combined.csv")
 
-#subset out the different replicates and genes
-crispr_r1 = subset(crispr_comb, crispr_comb$rep == "1")
-crispr_r2 = subset(crispr_comb, crispr_comb$rep == "2")
+#convert latency and duration measurements into minutes 
+dur2 = 60*24*(as.numeric(times(data_comb$dur)))
+data_comb = cbind(data_comb, dur2)
 
-#rep1
-obp56i_r1 = subset(crispr_r1, crispr_r1$gene == "56i")
-obp51a_r1 = subset(crispr_r1, crispr_r1$gene == "51a")
-obp56e_r1 = subset(crispr_r1, crispr_r1$gene == "56e")
-obp22a_r1 = subset(crispr_r1, crispr_r1$gene == "22a")
-obp56f_r1 = subset(crispr_r1, crispr_r1$gene == "56f")
-obp8a_r1 = subset(crispr_r1, crispr_r1$gene == "8a")
+lat2 = 60*24*(as.numeric(times(data_comb$lat)))
+data_comb = cbind(data_comb, lat2)
 
-#rep2
-obp56i_r2 = subset(crispr_r2, crispr_r2$gene == "56i")
-obp51a_r2 = subset(crispr_r2, crispr_r2$gene == "51a")
-obp56e_r2 = subset(crispr_r2, crispr_r2$gene == "56e")
-obp22a_r2 = subset(crispr_r2, crispr_r2$gene == "22a")
-obp56f_r2 = subset(crispr_r2, crispr_r2$gene == "56f")
-obp8a_r2 = subset(crispr_r2, crispr_r2$gene == "8a")
+#subset genes for later steps (nc# refers to fly line number, it is not meaningful experimentally)
+nc110_2 = subset(data_comb, data_comb$gene == "56i")
+nc182_2 = subset(data_comb, data_comb$gene == "51a")
+nc126_2 = subset(data_comb, data_comb$gene == "56e")
+nc141_2 = subset(data_comb, data_comb$gene == "22a")
+nc123_2 = subset(data_comb, data_comb$gene == "56f")
+nc8a_2 = subset(data_comb, data_comb$gene == "8a")
 ```
 
 ```{r}
-#egg lay plotting totals rep1
-plot = ggplot(data=crispr_r1, 
+###plot CRISPR egg lay (CyO/KO comparison)###
+plot = ggplot(data=data_comb, 
        aes(x=male_geno, 
-           y=e_tot), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
+           y=e_tot, color=male_geno)) +
   facet_grid(. ~ gene) +
   labs(x="Male Genotype", y="Eggs laid (total)")+
   theme_classic()+
   theme(panel.spacing = unit(1, "lines")) + 
   theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
+  theme(strip.background = element_blank())+
+  geom_quasirandom(dodge.width=.9,alpha=.4) 
 
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
+p = plot + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.3, size=0.6) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
+```
 
-p
-
-#egg hatch totals rep1
-plot = ggplot(data=crispr_r1, 
+```{r}
+###latency/duration plots (CyO/KO comparison)###
+#plot CRISPR latency (CyO/KO comparison)
+plot = ggplot(data=data_comb, 
        aes(x=male_geno, 
-           y=hatch_tot), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
-  facet_grid(. ~ gene) +
-  labs(x="Male Genotype", y="Total hatchability")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
-
-p
-
-#egg lay plotting totals rep2
-plot = ggplot(data=crispr_r2, 
-       aes(x=male_geno, 
-           y=e_tot), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
-  facet_grid(. ~ gene) +
-  labs(x="Male Genotype", y="Eggs laid (total)")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
-
-p
-
-#egg hatch totals rep2
-plot = ggplot(data=crispr_r2, 
-       aes(x=male_geno, 
-           y=hatch_tot), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
-  facet_grid(. ~ gene) +
-  labs(x="Male Genotype", y="Total hatchability")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
-
-p
-```
-
-```{r}
-#get data into "long form" for linear models egg lay
-
-#rep1
-#obp56i
-obp56i_r1_long = obp56i_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56i_r1_long$day = as.factor(obp56i_r1_long$day)
-
-#obp51a
-obp51a_r1_long = obp51a_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp51a_r1_long$day = as.factor(obp51a_r1_long$day)
-
-#obp56e
-obp56e_r1_long = obp56e_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56e_r1_long$day = as.factor(obp56e_r1_long$day)
-
-#obp22a
-obp22a_r1_long = obp22a_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp22a_r1_long$day = as.factor(obp22a_r1_long$day)
-
-#obp56f
-obp56f_r1_long = obp56f_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56f_r1_long$day = as.factor(obp56f_r1_long$day)
-
-#obp8a
-obp8a_r1_long = obp8a_r1 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp8a_r1_long$day = as.factor(obp8a_r1_long$day)
-
-#rep2
-#obp56i
-obp56i_r2_long = obp56i_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56i_r2_long$day = as.factor(obp56i_r2_long$day)
-
-#obp51a
-obp51a_r2_long = obp51a_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp51a_r2_long$day = as.factor(obp51a_r2_long$day)
-
-#obp56e
-obp56e_r2_long = obp56e_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56e_r2_long$day = as.factor(obp56e_r2_long$day)
-
-#obp22a
-obp22a_r2_long = obp22a_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp22a_r2_long$day = as.factor(obp22a_r2_long$day)
-
-#obp56f
-obp56f_r2_long = obp56f_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp56f_r2_long$day = as.factor(obp56f_r2_long$day)
-
-#obp8a
-obp8a_r2_long = obp8a_r2 %>%
-  pivot_longer(cols = starts_with("d_"),
-   names_to = "day",
-   names_prefix = "d_",
-   values_to = "eggs",
-   values_drop_na = TRUE)
-obp8a_r2_long$day = as.factor(obp8a_r2_long$day)
-```
-
-```{r}
-#linear models crispr egg lay rep1
-
-#obp56i
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56i_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56i=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=c(p_56i)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56i_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp51a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp51a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_51a=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=append(pvals_egglay_r1, p_51a)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp51a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56e
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56e_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56e=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=append(pvals_egglay_r1, p_56e)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56e_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp22a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp22a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_22a=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=append(pvals_egglay_r1, p_22a)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp22a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56f
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56f_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56f=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=append(pvals_egglay_r1, p_56f)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56f_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp8a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp8a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_8a=summary(model1)$coefficients[2,4]
-pvals_egglay_r1=append(pvals_egglay_r1, p_8a)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp8a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-##linear models egg lay rep 2
-
-#obp56i
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56i_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56i_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=c(p_56i_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56i_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp51a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp51a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_51a_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=append(pvals_egglay_r2, p_51a_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp51a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56e
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56e_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56e_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=append(pvals_egglay_r2, p_56e_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56e_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp22a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp22a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_22a_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=append(pvals_egglay_r2, p_22a_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp22a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56f
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp56f_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_56f_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=append(pvals_egglay_r2, p_56f_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp56f_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp8a
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=obp8a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_8a_2=summary(model1)$coefficients[2,4]
-pvals_egglay_r2=append(pvals_egglay_r2, p_8a_2)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=obp8a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-##perform BH correction on vector of p values
-pvals_egglay_r1
-pvals_egglay_r2
-
-p.adjust(pvals_egglay_r1, "BH", 6)
-p.adjust(pvals_egglay_r2, "BH", 6)
-```
-
-```{r}
-#get data into "long form" for linear models hatch
-
-#rep1
-#obp56i
-obp56i_r1_long = obp56i_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56i_r1_long$day = as.factor(obp56i_r1_long$day)
-
-#obp51a
-obp51a_r1_long = obp51a_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp51a_r1_long$day = as.factor(obp51a_r1_long$day)
-
-#obp56e
-obp56e_r1_long = obp56e_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56e_r1_long$day = as.factor(obp56e_r1_long$day)
-
-#obp22a
-obp22a_r1_long = obp22a_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp22a_r1_long$day = as.factor(obp22a_r1_long$day)
-
-#obp56f
-obp56f_r1_long = obp56f_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56f_r1_long$day = as.factor(obp56f_r1_long$day)
-
-#obp8a
-obp8a_r1_long = obp8a_r1 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp8a_r1_long$day = as.factor(obp8a_r1_long$day)
-
-#rep2
-#obp56i
-obp56i_r2_long = obp56i_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56i_r2_long$day = as.factor(obp56i_r2_long$day)
-
-#obp51a
-obp51a_r2_long = obp51a_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp51a_r2_long$day = as.factor(obp51a_r2_long$day)
-
-#obp56e
-obp56e_r2_long = obp56e_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56e_r2_long$day = as.factor(obp56e_r2_long$day)
-
-#obp22a
-obp22a_r2_long = obp22a_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp22a_r2_long$day = as.factor(obp22a_r2_long$day)
-
-#obp56f
-obp56f_r2_long = obp56f_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp56f_r2_long$day = as.factor(obp56f_r2_long$day)
-
-#obp8a
-obp8a_r2_long = obp8a_r2 %>%
-  pivot_longer(cols = starts_with("h_"),
-   names_to = "day",
-   names_prefix = "h_",
-   values_to = "hatch",
-   values_drop_na = TRUE)
-obp8a_r2_long$day = as.factor(obp8a_r2_long$day)
-```
-
-```{r}
-#linear models hatch rep1
-
-#obp56i
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56i_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56i=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=c(p_hatch_56i)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56i_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp51a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp51a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_51a=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=append(pvals_hatch_r1, p_hatch_51a)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp51a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56e
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56e_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56e=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=append(pvals_hatch_r1, p_hatch_56e)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56e_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp22a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp22a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_22a=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=append(pvals_hatch_r1, p_hatch_22a)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp22a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56f
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56f_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56f=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=append(pvals_hatch_r1, p_hatch_56f)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56f_r1_long)
-summary(model2)
-anova(model2, model1)
-
-#obp8a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp8a_r1_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_8a=summary(model1)$coefficients[2,4]
-pvals_hatch_r1=append(pvals_hatch_r1, p_hatch_8a)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp8a_r1_long)
-summary(model2)
-anova(model2, model1)
-
-##linear models hatch rep 2
-
-#obp56i
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56i_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56i_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=c(p_hatch_56i_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56i_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp51a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp51a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_51a_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=append(pvals_hatch_r2, p_hatch_51a_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp51a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56e
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56e_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56e_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=append(pvals_hatch_r2, p_hatch_56e_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56e_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp22a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp22a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_22a_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=append(pvals_hatch_r2, p_hatch_22a_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp22a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp56f
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp56f_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_56f_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=append(pvals_hatch_r2, p_hatch_56f_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp56f_r2_long)
-summary(model2)
-anova(model2, model1)
-
-#obp8a
-model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|vial), family=binomial, weights=e_tot, data=obp8a_r2_long)
-summary(model1)
-#extract p val for male genotype term and add to vector of p vals
-p_hatch_8a_2=summary(model1)$coefficients[2,4]
-pvals_hatch_r2=append(pvals_hatch_r2, p_hatch_8a_2)
-
-model2 = glmer(pup_t/e_tot ~ day + (1|vial), family=binomial, weights=e_tot, data=obp8a_r2_long)
-summary(model2)
-anova(model2, model1)
-
-##perform BH correction on vector of p values
-p.adjust(pvals_hatch_r1, "BH", 6)
-p.adjust(pvals_hatch_r2, "BH", 6)
-```
-
-```{r}
-##receptivity crispr rep1 and graphs
-#make proportion table to see proportion of females that remated @ 4 days. 
-#obp56i
-table1 = table(obp56i_r1$mated, obp56i_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp56i_r1$mated, obp56i_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56i_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = c(p_56i_remate_1)
-
-#obp51a
-table1 = table(obp51a_r1$mated, obp51a_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp51a_r1$mated, obp51a_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_51a_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = append(pvals_remating_1, p_51a_remate_1)
-
-#obp56e
-table1 = table(obp56e_r1$mated, obp56e_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp56e_r1$mated, obp56e_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56e_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = append(pvals_remating_1, p_56e_remate_1)
-
-##obp22a
-table1 = table(obp22a_r1$mated, obp22a_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp22a_r1$mated, obp22a_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_22a_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = append(pvals_remating_1, p_22a_remate_1)
-
-#obp56f
-table1 = table(obp56f_r1$mated, obp56f_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp56f_r1$mated, obp56f_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56f_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = append(pvals_remating_1, p_56f_remate_1)
-
-#obp8a
-table1 = table(obp8a_r1$mated, obp8a_r1$male_geno)
-table1
-prop_table1 = prop.table(table(obp8a_r1$mated, obp8a_r1$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_8a_remate_1=fisher.test(table1)$p.value
-pvals_remating_1 = append(pvals_remating_1, p_8a_remate_1)
-
-##receptivity crispr rep 2
-#obp56i
-table1 = table(obp56i_r2$mated, obp56i_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp56i_r2$mated, obp56i_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56i_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = c(p_56i_remate_2)
-
-#obp51a
-table1 = table(obp51a_r2$mated, obp51a_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp51a_r2$mated, obp51a_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_51a_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = append(pvals_remating_2, p_51a_remate_2)
-
-#obp56e
-table1 = table(obp56e_r2$mated, obp56e_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp56e_r2$mated, obp56e_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56e_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = append(pvals_remating_2, p_56e_remate_2)
-
-##obp22a
-table1 = table(obp22a_r2$mated, obp22a_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp22a_r2$mated, obp22a_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_22a_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = append(pvals_remating_2, p_22a_remate_2)
-
-#obp56f
-table1 = table(obp56f_r2$mated, obp56f_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp56f_r2$mated, obp56f_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_56f_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = append(pvals_remating_2, p_56f_remate_2)
-
-#obp8a
-table1 = table(obp8a_r2$mated, obp8a_r2$male_geno)
-table1
-prop_table1 = prop.table(table(obp8a_r2$mated, obp8a_r2$male_geno), 2)
-prop_table1
-
-#transform to percent
-prop1 = apply(prop_table1, 2, function(x){x*100})
-prop1
-
-fisher.test(table1)
-
-#extract p val from fisher test and add it to vector of p vals
-p_8a_remate_2=fisher.test(table1)$p.value
-pvals_remating_2 = append(pvals_remating_2, p_8a_remate_2)
-
-#BH correction on vector of p vals
-p.adjust(pvals_remating_1, "BH", 6)
-p.adjust(pvals_remating_2, "BH", 6)
-
-#make stacked bar charts
-#load count data (this is the same data as above, just in different format)
-recep_totals = read.csv("barchart_receptivity.csv")
-
-#subset replicates
-recep_1 = subset(recep_totals, recep_totals$rep=="1")
-recep_2 = subset(recep_totals, recep_totals$rep=="2")
-
-##stacked bar plots rep1
-ggplot(recep_1, aes(y=number, x=male_geno, fill=recep)) + 
-    geom_bar(position="fill", stat="identity") +
-  facet_wrap(~gene, scales="free_x") +
-    labs(x="Male Genotype", y="Proportion of females", fill="Remated?")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-
-##stacked bar plots rep2
-ggplot(recep_2, aes(y=number, x=male_geno, fill=recep)) + 
-    geom_bar(position="fill", stat="identity") +
-  facet_wrap(~gene, scales="free_x") +
-    labs(x="Male Genotype", y="Proportion of females", fill="Remated?")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-
-```
-
-```{r}
-##latency/duration rep1
-#obp56i
-latency2 = 60*24*(as.numeric(times(obp56i_r1$lat)))
-obp56i_r1 = cbind(obp56i_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp56i_r1$dur)))
-obp56i_r1 = cbind(obp56i_r1, duration2)
-
-t.test(obp56i_r1$duration2~obp56i_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56i_dur_p=t.test(obp56i_r1$duration2~obp56i_r1$male_geno)$p.value
-p_val_list_dur1=c(obp56i_dur_p)
-
-t.test(obp56i_r1$latency2~obp56i_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56i_lat_p=t.test(obp56i_r1$latency2~obp56i_r1$male_geno)$p.value
-p_val_list_lat1=c(obp56i_lat_p)
-
-#obp51a
-latency2 = 60*24*(as.numeric(times(obp51a_r1$lat)))
-obp51a_r1 = cbind(obp51a_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp51a_r1$dur)))
-obp51a_r1 = cbind(obp51a_r1, duration2)
-
-t.test(obp51a_r1$duration2~obp51a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp51a_dur_p=t.test(obp51a_r1$duration2~obp51a_r1$male_geno)$p.value
-p_val_list_dur1=append(p_val_list_dur1, obp51a_dur_p)
-
-t.test(obp51a_r1$latency2~obp51a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp51a_lat_p=t.test(obp51a_r1$latency2~obp51a_r1$male_geno)$p.value
-p_val_list_lat1=append(p_val_list_lat1, obp51a_lat_p)
-
-#obp56e
-latency2 = 60*24*(as.numeric(times(obp56e_r1$lat)))
-obp56e_r1 = cbind(obp56e_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp56e_r1$dur)))
-obp56e_r1 = cbind(obp56e_r1, duration2)
-
-t.test(obp56e_r1$duration2~obp56e_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56e_dur_p=t.test(obp56e_r1$duration2~obp56e_r1$male_geno)$p.value
-p_val_list_dur1=append(p_val_list_dur1, obp56e_dur_p)
-
-t.test(obp56e_r1$latency2~obp56e_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56e_lat_p=t.test(obp56e_r1$latency2~obp56e_r1$male_geno)$p.value
-p_val_list_lat1=append(p_val_list_lat1, obp56e_lat_p)
-
-#obp22a
-latency2 = 60*24*(as.numeric(times(obp22a_r1$lat)))
-obp22a_r1 = cbind(obp22a_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp22a_r1$dur)))
-obp22a_r1 = cbind(obp22a_r1, duration2)
-
-t.test(obp22a_r1$duration2~obp22a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp22a_dur_p=t.test(obp22a_r1$duration2~obp22a_r1$male_geno)$p.value
-p_val_list_dur1=append(p_val_list_dur1, obp22a_dur_p)
-
-t.test(obp22a_r1$latency2~obp22a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp22a_lat_p=t.test(obp22a_r1$latency2~obp22a_r1$male_geno)$p.value
-p_val_list_lat1=append(p_val_list_lat1, obp22a_lat_p)
-
-#obp56f
-latency2 = 60*24*(as.numeric(times(obp56f_r1$lat)))
-obp56f_r1 = cbind(obp56f_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp56f_r1$dur)))
-obp56f_r1 = cbind(obp56f_r1, duration2)
-
-t.test(obp56f_r1$duration2~obp56f_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56f_dur_p=t.test(obp56f_r1$duration2~obp56f_r1$male_geno)$p.value
-p_val_list_dur1=append(p_val_list_dur1, obp56f_dur_p)
-
-t.test(obp56f_r1$latency2~obp56f_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56f_lat_p=t.test(obp56f_r1$latency2~obp56f_r1$male_geno)$p.value
-p_val_list_lat1=append(p_val_list_lat1, obp56f_lat_p)
-
-#obp8a
-latency2 = 60*24*(as.numeric(times(obp8a_r1$lat)))
-obp8a_r1 = cbind(obp8a_r1, latency2)
-duration2 = 60*24*(as.numeric(times(obp8a_r1$dur)))
-obp8a_r1 = cbind(obp8a_r1, duration2)
-
-t.test(obp8a_r1$duration2~obp8a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp8a_dur_p=t.test(obp8a_r1$duration2~obp8a_r1$male_geno)$p.value
-p_val_list_dur1=append(p_val_list_dur1, obp8a_dur_p)
-
-t.test(obp8a_r1$latency2~obp8a_r1$male_geno)
-#extract p value from t.test and append to list of p vals
-obp8a_lat_p=t.test(obp8a_r1$latency2~obp8a_r1$male_geno)$p.value
-p_val_list_lat1=append(p_val_list_lat1, obp8a_lat_p)
-
-##rep 2
-#obp56i
-latency2 = 60*24*(as.numeric(times(obp56i_r2$lat)))
-obp56i_r2 = cbind(obp56i_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp56i_r2$dur)))
-obp56i_r2 = cbind(obp56i_r2, duration2)
-
-t.test(obp56i_r2$duration2~obp56i_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56i_dur_p2=t.test(obp56i_r2$duration2~obp56i_r2$male_geno)$p.value
-p_val_list_dur2=c(obp56i_dur_p2)
-
-t.test(obp56i_r2$latency2~obp56i_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56i_lat_p2=t.test(obp56i_r2$latency2~obp56i_r2$male_geno)$p.value
-p_val_list_lat2=c(obp56i_lat_p2)
-
-#obp51a
-latency2 = 60*24*(as.numeric(times(obp51a_r2$lat)))
-obp51a_r2 = cbind(obp51a_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp51a_r2$dur)))
-obp51a_r2 = cbind(obp51a_r2, duration2)
-
-t.test(obp51a_r2$duration2~obp51a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp1a_dur_p2=t.test(obp51a_r2$duration2~obp51a_r2$male_geno)$p.value
-p_val_list_dur2=append(p_val_list_dur2, obp1a_dur_p2)
-
-t.test(obp51a_r2$latency2~obp51a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp51a_lat_p2=t.test(obp51a_r2$latency2~obp51a_r2$male_geno)$p.value
-p_val_list_lat2=append(p_val_list_lat2, obp51a_lat_p2)
-
-#obp56e
-latency2 = 60*24*(as.numeric(times(obp56e_r2$lat)))
-obp56e_r2 = cbind(obp56e_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp56e_r2$dur)))
-obp56e_r2 = cbind(obp56e_r2, duration2)
-
-t.test(obp56e_r2$duration2~obp56e_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56e_dur_p2=t.test(obp56e_r2$duration2~obp56e_r2$male_geno)$p.value
-p_val_list_dur2=append(p_val_list_dur2, obp56e_dur_p2)
-
-t.test(obp56e_r2$latency2~obp56e_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56e_lat_p2=t.test(obp56e_r2$latency2~obp56e_r2$male_geno)$p.value
-p_val_list_lat2=append(p_val_list_lat2, obp56e_lat_p2)
-
-#obp22a
-latency2 = 60*24*(as.numeric(times(obp22a_r2$lat)))
-obp22a_r2 = cbind(obp22a_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp22a_r2$dur)))
-obp22a_r2 = cbind(obp22a_r2, duration2)
-
-t.test(obp22a_r2$duration2~obp22a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp22a_dur_p2=t.test(obp22a_r2$duration2~obp22a_r2$male_geno)$p.value
-p_val_list_dur2=append(p_val_list_dur2, obp22a_dur_p2)
-
-t.test(obp22a_r2$latency2~obp22a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp22a_lat_p2=t.test(obp22a_r2$latency2~obp22a_r2$male_geno)$p.value
-p_val_list_lat2=append(p_val_list_lat2, obp22a_lat_p2)
-
-#obp56f
-latency2 = 60*24*(as.numeric(times(obp56f_r2$lat)))
-obp56f_r2 = cbind(obp56f_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp56f_r2$dur)))
-obp56f_r2 = cbind(obp56f_r2, duration2)
-
-t.test(obp56f_r2$duration2~obp56f_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56f_dur_p2=t.test(obp56f_r2$duration2~obp56f_r2$male_geno)$p.value
-p_val_list_dur2=append(p_val_list_dur2, obp56f_dur_p2)
-
-t.test(obp56f_r2$latency2~obp56f_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp56f_lat_p2=t.test(obp56f_r2$latency2~obp56f_r2$male_geno)$p.value
-p_val_list_lat2=append(p_val_list_lat2, obp56f_lat_p2)
-
-#obp8a
-latency2 = 60*24*(as.numeric(times(obp8a_r2$lat)))
-obp8a_r2 = cbind(obp8a_r2, latency2)
-duration2 = 60*24*(as.numeric(times(obp8a_r2$dur)))
-obp8a_r2 = cbind(obp8a_r2, duration2)
-
-t.test(obp8a_r2$duration2~obp8a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp8a_dur_p2=t.test(obp8a_r2$duration2~obp8a_r2$male_geno)$p.value
-p_val_list_dur2=append(p_val_list_dur2, obp8a_dur_p2)
-
-t.test(obp8a_r2$latency2~obp8a_r2$male_geno)
-#extract p value from t.test and append to list of p vals
-obp8a_lat_p2=t.test(obp8a_r2$latency2~obp8a_r2$male_geno)$p.value
-p_val_list_lat2=append(p_val_list_lat2, obp8a_lat_p2)
-
-##perform BH correction on vector of p values from t tests 
-p_val_list_dur1
-p_val_list_lat1
-p_val_list_dur2
-p_val_list_lat2
-p.adjust(p_val_list_dur1, "BH", 6)
-p.adjust(p_val_list_lat1, "BH", 6)
-p.adjust(p_val_list_dur2, "BH", 6)
-p.adjust(p_val_list_lat2, "BH", 6)
-
-##make plots latency/duration
-#calculate latency and duration combined datasets
-#rep1
-latency2 = 60*24*(as.numeric(times(crispr_r1$lat)))
-crispr_r1 = cbind(crispr_r1, latency2)
-duration2 = 60*24*(as.numeric(times(crispr_r1$dur)))
-crispr_r1 = cbind(crispr_r1, duration2)
-
-#rep2
-latency2 = 60*24*(as.numeric(times(crispr_r2$lat)))
-crispr_r2 = cbind(crispr_r2, latency2)
-duration2 = 60*24*(as.numeric(times(crispr_r2$dur)))
-crispr_r2 = cbind(crispr_r2, duration2)
-
-#latency rep1
-plot = ggplot(data=crispr_r1, 
-       aes(x=male_geno, 
-           y=latency2), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
+           y=lat2, color=male_geno)) +
   facet_grid(. ~ gene) +
   labs(x="Male Genotype", y="Mating latency (min)")+
   theme_classic()+
   theme(panel.spacing = unit(1, "lines")) + 
   theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-plot
+  theme(strip.background = element_blank())+
+  geom_quasirandom(dodge.width=.9,alpha=.4) 
 
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
+p = plot + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.3, size=0.6) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
 
-#duration rep1
-plot = ggplot(data=crispr_r2, 
+#plot CRISPR duration (CyO/KO comparison)
+plot = ggplot(data=data_comb, 
        aes(x=male_geno, 
-           y=duration2), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
-  facet_grid(. ~ gene) +
-  labs(x="Male Genotype", y="Mating duration (min)")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-plot
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
-
-#latency rep2
-plot = ggplot(data=crispr_r2, 
-       aes(x=male_geno, 
-           y=latency2), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
+           y=dur2, color=male_geno)) +
   facet_grid(. ~ gene) +
   labs(x="Male Genotype", y="Mating latency (min)")+
   theme_classic()+
   theme(panel.spacing = unit(1, "lines")) + 
   theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-plot
+  theme(strip.background = element_blank())+
+  geom_quasirandom(dodge.width=.9,alpha=.4) 
 
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
-
-#duration rep2
-plot = ggplot(data=crispr_r2, 
-       aes(x=male_geno, 
-           y=duration2), 
-           fill=male_geno) +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, alpha = 0.9) + 
-  facet_grid(. ~ gene) +
-  labs(x="Male Genotype", y="Mating duration (min)")+
-  theme_classic()+
-  theme(panel.spacing = unit(1, "lines")) + 
-  theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank())
-plot
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.2, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
+p = plot + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.3, size=0.6) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
 
 ```
+
+```{r}
+###plot CRISPR remating rates (CyO/KO comparison) ###
+#the data in the following spreadsheet is the same as that in data_comb, just in a different format (total counts)
+recep_comb = read.csv("~/crispr_combined_recep_numbers.csv")
+p = ggplot(recep_comb, aes(y=number, x=male_geno, fill=recep)) + 
+  geom_bar(position="fill", stat="identity") + 
+  facet_wrap(~gene, scales="free_x") + 
+  labs(x="Male Genotype", y="Proportion of Females", fill="Remated?") + 
+  theme_classic() + 
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme(strip.text.x = element_text(colour="black")) + 
+  theme(strip.background = element_blank()) 
+
+```
+
+```{r}
+###duration/latency tests CRISPR mutants (CyO/KO comparison)###
+##56i
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc110_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc110_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc110_2)
+summary(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc110_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+##51a
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc182_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc110_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc182_2)
+summary(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc110_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+##56e
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc126_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc126_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc126_2)
+summary(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc126_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+##22a
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc141_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc141_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc141_2)
+summary(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc141_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+##56f
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc123_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc123_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc123_2)
+summary(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc123_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+##8a
+model1 = lmer(dur2 ~ male_geno + (1|replicate), data=nc8a_2)
+summary(model1)
+model2 = lmer(dur2 ~ (1|replicate), data=nc8a_2)
+summary(model2)
+anova(model1, model2)
+
+emmeans(model1, list(pairwise~male_geno))
+
+model3 = lmer(lat2 ~ male_geno + (1|replicate), data=nc8a_2)
+anova(model1)
+model4 = lmer(lat2 ~ (1|replicate), data=nc8a_2)
+summary(model2)
+anova(model3, model4)
+
+emmeans(model3, list(pairwise~male_geno))
+
+#dur p val correction (p vals come from emmeans comparisons in the linear models above)
+p=c(0.5763, 0.6059, 0.0488, 0.5508, 0.9359, 0.0001)
+p.adjust(p, "BH", 6)
+
+#lat p val correction (p vals come from emmeans comparisons in the linear models above)
+p=c(0.0296, 0.6926, 0.8170, 0.1452, 0.7444, 0.1673)
+p.adjust(p, "BH", 6)
+```
+
+```{r}
+###remating rates test CRISPR mutants (CyO/KO comparison)###
+table1 = table(nc110_2$mated, nc110_2$male_geno)
+fisher.test(table1)
+
+table1 = table(nc182_2$mated, nc182_2$male_geno)
+fisher.test(table1)
+
+table1 = table(nc126_2$mated, nc126_2$male_geno)
+fisher.test(table1)
+
+table1 = table(nc141_2$mated, nc141_2$male_geno)
+fisher.test(table1)
+
+table1 = table(nc123_2$mated, nc123_2$male_geno)
+fisher.test(table1)
+
+table1 = table(nc8a_2$mated, nc8a_2$male_geno)
+fisher.test(table1)
+
+#remating p val correction
+p=c(0.4553, 0.7936, 0.7115, 0.6346, 0.4245, 0.00008906)
+p.adjust(p, "BH", 6)
+```
+
+```{r}
+###transform into long form for linear model (CyO/KO comparison)###
+##nc110
+nc110_long = nc110_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+nc110_long$day = as.factor(nc110_long$day)
+
+##nc182
+nc182_long = nc182_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+nc182_long$day = as.factor(nc182_long$day)
+
+##nc126
+nc126_long = nc126_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+nc126_long$day = as.factor(nc126_long$day)
+
+##nc141
+nc141_long = nc141_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+nc141_long$day = as.factor(nc141_long$day)
+
+##nc123
+nc123_long = nc123_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+nc123_long$day = as.factor(nc123_long$day)
+
+##8a
+nc8a_long = nc8a_2 %>%
+  pivot_longer(cols = starts_with("d_"),
+   names_to = "day",
+   names_prefix = "d_",
+   values_to = "eggs",
+   values_drop_na = TRUE)
+#nc8a_long$day = as.factor(nc8a_long$day)
+```
+
+```{r}
+###linear models egg lay###
+##56i
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) +  (1|vial), family=poisson, data=nc110_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate) + (1|vial), family=poisson, data=nc110_long)
+summary(model2)
+anova(model2, model1)
+
+##51a
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) + (1|vial), family=poisson, data=nc182_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate) + (1|vial), family=poisson, data=nc182_long)
+summary(model2)
+anova(model2, model1)
+
+##56e
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) + (1|vial), family=poisson, data=nc126_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate) + (1|vial), family=poisson, data=nc126_long)
+summary(model2)
+anova(model2, model1)
+
+##22a
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) + (1|vial), family=poisson, data=nc141_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate) + (1|vial), family=poisson, data=nc141_long)
+summary(model2)
+anova(model2, model1)
+
+##56f
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) + (1|vial), family=poisson, data=nc123_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate) + (1|vial), family=poisson, data=nc123_long)
+summary(model2)
+anova(model2, model1)
+
+##8a
+model1 = glmer(eggs ~ male_geno + day + (1|replicate) + (1|vial), family=poisson, data=nc8a_long)
+summary(model1)
+model2 = glmer(eggs ~ day + (1|replicate)  + (1|vial), family=poisson, data=nc8a_long)
+summary(model2)
+anova(model1, model2)
+
+##egg lay pval correction 
+p = c(0.728, 0.645, 0.0986, 0.44255, 0.905, 0.0159)
+p.adjust(p, method="BH", 6)
+```
+
+```{r}
+###hatch###
+##nc110
+nc110_long = nc110_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+##nc182
+nc182_long = nc182_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+##nc126
+nc126_long = nc126_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+##nc141
+nc141_long = nc141_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+##nc123
+nc123_long = nc123_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+##8a
+nc8a_long = nc8a_2 %>%
+  pivot_longer(cols = starts_with("h_"),
+   names_to = "day",
+   names_prefix = "h_",
+   values_to = "hatch",
+   values_drop_na = TRUE)
+
+```
+
+```{r}
+###hatch linear models###
+#56i
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc110_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc110_long)
+summary(model2)
+anova(model2, model1)
+
+#51a
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc182_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot,data=nc182_long)
+summary(model2)
+anova(model2, model1)
+
+#56e
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc126_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc126_long)
+summary(model2)
+anova(model2, model1)
+
+#22a
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc141_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc141_long)
+summary(model2)
+anova(model2, model1)
+
+#56f
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights = e_tot, data=nc123_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc123_long)
+summary(model2)
+anova(model2, model1)
+
+#8a
+model1 = glmer(pup_t/e_tot ~ male_geno + day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc8a_long)
+summary(model1)
+model2 = glmer(pup_t/e_tot ~ day + (1|replicate) + (1|vial), family=binomial, weights=e_tot, data=nc8a_long)
+summary(model2)
+anova(model2, model1)
+
+##hatch p val correction
+p=c(0.711, 0.142, 0.191, 0.399, 0.982, 2.4e10-07)
+p.adjust(p, "BH", 6)
+```
+
+##CRISPR mating assays (+/+, +/-, -/- comparison)
+Definition of variables:
+vial: vial CS female is put into
+male_geno: genotype of male CS female is mated to, for each gene (NC# alone = homozygous mutant, NC#/175 = heterozygote, NC175 = homozygous +). NC# refers to the fly line for these genes: 
+NC110 = obp56i
+NC182 = obp51a
+NC126 = obp56e
+NC141 = obp22a
+NC123 = obp56f
+intro: time male introduced to vial
+start: time flies began copulating
+done: time flies finished copulating
+lat: latency to mate, calculated as start-intro 
+dur: duration of mating, calculated as done-start
+d_1 through d_4: number of eggs female laid on days 1-4
+e_tot: sum of eggs in d_1 through d_4
+mated_4: Y/N if that female mated with a CS male on the fourth day after mating within a one hour time frame
+set: one of four experimental blocks flies were assayed in (for most genes, x1 was rep1 and x2 was rep2, except nc123 which was split differently across the blocks)
+rep: replicate of experiment
+
+```{r}
+#load data
+crispr_het = read.csv("~/crisprhets_combined.csv")
+
+#subset data by set
+a1a2 = subset(crispr_het, crispr_het$set == "A1" | set=="A2")
+a1b1 = subset(crispr_het, crispr_het$set == "A1" | set=="B1")
+b1b2 = subset(crispr_het, crispr_het$set == "B1" | set=="B2")
+
+#and now pull out the male genotypes we want to compare from there: 
+nc110 = subset(a1a2, a1a2$male_geno == "NC110" | male_geno == "NC110/175" | male_geno == "NC175")
+nc123 = subset(a1b1, a1b1$male_geno == "NC123" | male_geno == "NC123/175" | male_geno == "NC175")
+nc141 = subset(a1a2, a1a2$male_geno == "NC141" | male_geno == "NC141/175" | male_geno == "NC175")
+nc126 = subset(b1b2, b1b2$male_geno == "NC126" | male_geno == "NC126/175" | male_geno == "NC175")
+nc182 = subset(b1b2, b1b2$male_geno == "NC182" | male_geno == "NC182/175" | male_geno == "NC175")
+
+#change rep in nc123 if set is b1, rep should equal 2 and not 1. nc123 was split across sets in a different way than the other genes but was tested in the same manner.
+nc123$rep <- ifelse(nc123$set %in% c('B1'), 2, nc123$rep)
+
+#change male_geno to factor
+nc110$male_geno = as.factor(nc110$male_geno)
+nc182$male_geno = as.factor(nc182$male_geno)
+nc123$male_geno = as.factor(nc123$male_geno)
+nc141$male_geno = as.factor(nc141$male_geno)
+nc126$male_geno = as.factor(nc126$male_geno)
+```
+
+```{r}
+###plots
+#56i
+pa = ggplot(data = nc110,
+            aes(x=factor(male_geno, levels=c("NC175", "NC110/175", "NC110")), y=e_tot, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="Eggs Laid (total") + 
+  scale_fill_manual(values=c("#FACCC6", "#EF5743", "#CD2913")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+#56f
+pb = ggplot(data = nc123,
+            aes(x=factor(male_geno, levels=c("NC175", "NC123/175", "NC123")), y=e_tot, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="Eggs Laid (total") + 
+  ylim(0, 400) + 
+  scale_fill_manual(values=c("#EAEFBD", "#C9E3AC", "#90BE6D")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+#22a
+pc = ggplot(data = nc141,
+            aes(x=factor(male_geno, levels=c("NC175", "NC141/175", "NC141")), y=e_tot, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="Eggs Laid (total") + 
+  scale_fill_manual(values=c("#FDC5F5", "#F7AEF8", "#B388EB")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+#56e
+pd = ggplot(data = nc126,
+            aes(x=factor(male_geno, levels=c("NC175", "NC126/175", "NC126")), y=e_tot, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="Eggs Laid (total") + 
+  scale_fill_manual(values=c("#B6CEF6", "#6F9CEB", "#2D649F")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+#51a
+pe = ggplot(data = nc182,
+            aes(x=factor(male_geno, levels=c("NC175", "NC182/175", "NC182")), y=e_tot, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="Eggs Laid (total") + 
+  scale_fill_manual(values=c("#40798C", "#CFD7C7", "#70A9A1")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+figure <- ggarrange(pa, pb, pc, pd, pe,
+                    labels = c("A", "B", "C", "D", "E"),
+                    ncol = 3, nrow = 2)
+figure
+```
+
+```{r}
+##latency/duration plots
+#56i
+dur2 = 60*24*(as.numeric(times(nc110$dur)))
+nc110 = cbind(nc110, dur2)
+
+lat2 = 60*24*(as.numeric(times(nc110$lat)))
+nc110 = cbind(nc110, lat2)
+
+pa1 = ggplot(data = nc110,
+            aes(x=factor(male_geno, levels=c("NC175", "NC110/175", "NC110")), y=dur2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="duration") + 
+  scale_fill_manual(values=c("#FACCC6", "#EF5743", "#CD2913")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+pa2 = ggplot(data = nc110,
+            aes(x=factor(male_geno, levels=c("NC175", "NC110/175", "NC110")), y=lat2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="latency") + 
+  scale_fill_manual(values=c("#FACCC6", "#EF5743", "#CD2913")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+##56f
+dur2 = 60*24*(as.numeric(times(nc123$dur)))
+nc123 = cbind(nc123, dur2)
+
+lat2 = 60*24*(as.numeric(times(nc123$lat)))
+nc123 = cbind(nc123, lat2)
+
+pb1 = ggplot(data = nc123,
+            aes(x=factor(male_geno, levels=c("NC175", "NC123/175", "NC123")), y=dur2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="duration") + 
+  scale_fill_manual(values=c("#EAEFBD", "#C9E3AC", "#90BE6D")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+pb2 = ggplot(data = nc123,
+            aes(x=factor(male_geno, levels=c("NC175", "NC123/175", "NC123")), y=lat2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="latency") + 
+  scale_fill_manual(values=c("#EAEFBD", "#C9E3AC", "#90BE6D")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+##56e
+dur2 = 60*24*(as.numeric(times(nc126$dur)))
+nc126 = cbind(nc126, dur2)
+
+lat2 = 60*24*(as.numeric(times(nc126$lat)))
+nc126 = cbind(nc126, lat2)
+
+pc1 = ggplot(data = nc126,
+            aes(x=factor(male_geno, levels=c("NC175", "NC126/175", "NC126")), y=dur2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="duration") + 
+  scale_fill_manual(values=c("#B6CEF6", "#6F9CEB", "#2D649F")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+pc2 = ggplot(data = nc126,
+            aes(x=factor(male_geno, levels=c("NC175", "NC126/175", "NC126")), y=lat2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="latency") + 
+  scale_fill_manual(values=c("#B6CEF6", "#6F9CEB", "#2D649F")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+##22a
+dur2 = 60*24*(as.numeric(times(nc141$dur)))
+nc141 = cbind(nc141, dur2)
+
+lat2 = 60*24*(as.numeric(times(nc141$lat)))
+nc141 = cbind(nc141, lat2)
+
+pd1 = ggplot(data = nc141,
+            aes(x=factor(male_geno, levels=c("NC175", "NC141/175", "NC141")), y=dur2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="duration") + 
+  scale_fill_manual(values=c("#FDC5F5", "#F7AEF8", "#B388EB")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+pd2 = ggplot(data = nc141,
+            aes(x=factor(male_geno, levels=c("NC175", "NC141/175", "NC141")), y=lat2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="latency") + 
+  scale_fill_manual(values=c("#FDC5F5", "#F7AEF8", "#B388EB")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+##51a
+dur2 = 60*24*(as.numeric(times(nc182$dur)))
+nc182 = cbind(nc182, dur2)
+
+lat2 = 60*24*(as.numeric(times(nc182$lat)))
+nc182 = cbind(nc182, lat2)
+
+pe1 = ggplot(data = nc182,
+            aes(x=factor(male_geno, levels=c("NC175", "NC182/175", "NC182")), y=dur2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="duration") + 
+  scale_fill_manual(values=c("#40798C", "#CFD7C7", "#70A9A1")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+pe2 = ggplot(data = nc182,
+            aes(x=factor(male_geno, levels=c("NC175", "NC182/175", "NC182")), y=lat2, fill=male_geno)) + 
+  geom_boxplot(position=position_dodge(0.8)) + 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=0.3, position=position_dodge(0.8), fill="black") + 
+  labs(x="Male Genotype", y="latency") + 
+  scale_fill_manual(values=c("#40798C", "#CFD7C7", "#70A9A1")) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) + 
+  theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+##duration plot combined
+figure <- ggarrange(pa1, pb1, pc1, pd1, pe1,
+                    labels = c("A", "B", "C", "D", "E"),
+                    ncol = 3, nrow = 2)
+figure
+
+##latency plot combined
+figure <- ggarrange(pa2, pb2, pc2, pd2, pe2,
+                    labels = c("A", "B", "C", "D", "E"),
+                    ncol = 3, nrow = 2)
+figure
+```
+
+```{r}
+##remating plot
+#the remating data is in the large dataframe above as well, here is a different form (counts)
+rematingdat = read.csv("~/crisprhet_rematingrates.csv")
+
+rematingdat$male_geno = factor(rematingdat$male_geno, levels=c("hom_wt", "het", "hom_mut"))
+
+p = ggplot(rematingdat, aes(y=number, x=male_geno, fill=recep)) + 
+  geom_bar(position="fill", stat="identity") + 
+  facet_wrap(~gene, scales="free_x") + 
+  labs(x="Male Genotype", y="Proportion of Females", fill="Remated?") + 
+  theme_classic() + 
+  theme(panel.spacing = unit(1, "lines")) + 
+  theme(strip.text.x = element_text(colour="black")) + 
+  theme(strip.background = element_blank()) 
+
+```
+
+
+```{r}
+#egg linear model
+#get data into long form 
+nc110_long = nc110 %>%
+  pivot_longer(cols = starts_with("d_"),
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
+
+nc123_long = nc123 %>%
+  pivot_longer(cols = starts_with("d_"),
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
+
+nc141_long = nc141 %>%
+  pivot_longer(cols = starts_with("d_"),
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
+
+nc126_long = nc126 %>%
+  pivot_longer(cols = starts_with("d_"),
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
+
+nc182_long = nc182 %>%
+  pivot_longer(cols = starts_with("d_"),
+               names_to = "day", 
+               values_to = "eggs", 
+               values_drop_na = TRUE)
+```
+
+```{r}
+#linear models
+#56i
+nc110_long$day = as.factor(nc110_long$day)
+model3 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=nc110_long)
+summary(model3)
+model4 = glmer(eggs ~ day + (1|rep) + (1|vial), family = poisson, data=nc110_long)
+summary(model4)
+anova(model3, model4)
+emmeans(model3, list(pairwise~male_geno))
+
+#56e
+nc126_long$day = as.factor(nc126_long$day)
+model3 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=nc126_long)
+summary(model3)
+model4 = glmer(eggs ~ day + (1|rep) + (1|vial), family = poisson, data=nc126_long)
+summary(model4)
+anova(model3, model4)
+emmeans(model3, list(pairwise~male_geno))
+
+#22a
+nc141_long$day = as.factor(nc141_long$day)
+model3 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=nc141_long)
+summary(model3)
+model4 = glmer(eggs ~ day + (1|rep) + (1|vial), family = poisson, data=nc141_long)
+summary(model4)
+anova(model3, model4)
+emmeans(model3, list(pairwise~male_geno))
+
+#56f
+nc123_long$day = as.factor(nc123_long$day)
+model3 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=nc123_long)
+summary(model3)
+model4 = glmer(eggs ~ day + (1|rep) + (1|vial), family = poisson, data=nc123_long)
+summary(model4)
+anova(model3, model4)
+emmeans(model3, list(pairwise~male_geno))
+
+#51a
+nc182_long$day = as.factor(nc182_long$day)
+model3 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=nc182_long)
+summary(model3)
+model4 = glmer(eggs ~ day + (1|rep) + (1|vial), family = poisson, data=nc182_long)
+summary(model4)
+anova(model3, model4)
+emmeans(model3, list(pairwise~male_geno))
+```
+
+```{r}
+#latency duration linear models
+#56i
+model3 = lmer(dur2~male_geno+(1|rep), data=nc110)
+summary(model3)
+model4 = lmer(dur2~(1|rep), data=nc110)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+model3 = lmer(lat2~male_geno+(1|rep), data=nc110)
+summary(model3)
+model4 = lmer(lat2~(1|rep), data=nc110)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+#56f
+model3 = lmer(dur2~male_geno+(1|rep), data=nc123)
+summary(model3)
+model4 = lmer(dur2~(1|rep), data=nc123)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+model3 = lmer(lat2~male_geno+(1|rep), data=nc123)
+summary(model3)
+model4 = lmer(lat2~(1|rep), data=nc123)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+#56e
+model3 = lmer(dur2~male_geno+(1|rep), data=nc126)
+summary(model3)
+model4 = lmer(dur2~(1|rep), data=nc126)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+model3 = lmer(lat2~male_geno+(1|rep), data=nc126)
+summary(model3)
+model4 = lmer(lat2~(1|rep), data=nc126)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+#22a
+model3 = lmer(dur2~male_geno+(1|rep), data=nc141)
+summary(model1)
+model4 = lmer(dur2~(1|rep), data=nc141)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+model3 = lmer(lat2~male_geno+(1|rep), data=nc141)
+summary(model1)
+model4 = lmer(lat2~(1|rep), data=nc141)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+#51a
+model3 = lmer(dur2~male_geno+(1|rep), data=nc182)
+summary(model1)
+model4 = lmer(dur2~(1|rep), data=nc182)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+
+model3 = lmer(lat2~male_geno+(1|rep), data=nc182)
+summary(model1)
+model4 = lmer(lat2~(1|rep), data=nc182)
+anova(model3, model4)
+emmeans(model3, list(pairwise ~ male_geno), adjust = "BH")
+```
+
+```{r}
+##remating
+#56i
+tab1 = table(nc110$male_geno, nc110$mated_4)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+
+#56f
+tab1 = table(nc123$mated_4, nc123$male_geno)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+
+#22a
+tab1 = table(nc141$mated_4, nc141$male_geno)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+
+#56e
+tab1 = table(nc126$male_geno, nc126$mated_4)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+
+#51a
+tab1 = table(nc182$male_geno, nc182$mated_4)
+tab1
+ptab1 = prop.table(tab1, 2)
+ptab1
+pairwise_prop_test(tab1)
+```
+
 
 ##Obp56g sperm count and mating plug proportion data (2 reps combined)
 Definition of variables (counts):
@@ -1450,43 +1103,67 @@ notes: interesting observations made during the course of the experiments
 ```{r}
 ###sperm counts and mp proportion data
 #import count data
-counts = read.csv("56g_spermcounts.csv")
+counts = read.csv("~/56g_spermcounts.csv")
 
 #explicitly order the levels within genotype so the control is first in the graph
 counts$male_geno <- factor(counts$male_geno, levels = c("CyO", "56g"))
 
 #make graphs
 pal3 <- park_palette("ArcticGates", 2)
-plot = ggplot(data=counts, 
-       aes(x=male_geno, 
-           y=count, 
-           fill=male_geno)) + 
+plot0 = ggplot(data=count_0, aes(x=male_geno, y=count, fill=male_geno)) +
   geom_boxplot() +
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill="black") + 
-  scale_fill_manual(values=pal3)+
-  facet_grid(. ~ freeze_time, labeller=label_both) +
-  labs(x="Male Genotype", y="Sperm in storage organs")+
+  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill='black')+
+  scale_fill_manual(values=pal3) +
+  labs(x="Male Genotype", y="Number of sperm")+
   theme_bw()+
-  theme(axis.title.y = element_text(size=18), axis.title.x = element_text(size=18), axis.text.y  = element_text(size=18),
-           axis.text.x  = element_text(size=18), strip.text.x = element_text(size = 20))+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(axis.title.y=element_text(size=18), axis.title.x = element_text(size=18), axis.text.y=element_text(size=18), axis.text.x = element_text(size=18), strip.text.x = element_text(size=20)) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
   guides(fill=F)
-plot
+
+plot3 = ggplot(data=count_3, aes(x=male_geno, y=count, fill=male_geno)) +
+  geom_boxplot() +
+  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill='black')+
+  scale_fill_manual(values=pal3) +
+  labs(x="Male Genotype", y="Number of sperm")+
+  theme_bw() + 
+  ylim(0, 600) +
+  theme(axis.title.y=element_text(size=18), axis.title.x = element_text(size=18), axis.text.y=element_text(size=18), axis.text.x = element_text(size=18), strip.text.x = element_text(size=20)) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  guides(fill=F) + 
+  theme(panel.background = element_rect(fill="white", colour="grey"))
+
+plot4 = ggplot(data=count_4, aes(x=male_geno, y=count, fill=male_geno)) +
+  geom_boxplot() +
+  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.45, fill='black')+
+  scale_fill_manual(values=pal3) +
+  labs(x="Male Genotype", y="Number of sperm")+
+  theme_bw()+
+  ylim(0,600) +
+  theme(axis.title.y=element_text(size=18), axis.title.x = element_text(size=18), axis.text.y=element_text(size=18), axis.text.x = element_text(size=18), strip.text.x = element_text(size=20)) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  guides(fill=F)
+
+figure <- ggarrange(plot0, plot3, plot4,
+                    ncol = 3, nrow = 1)
+figure
 
 #subset the data to separate the freeze times to do the t-tests with
+zerohour = subset(sperm_count, sperm_count$freeze_time==0)
 threehour = subset(counts, counts$freeze_time == 3)
 fourday = subset(counts, counts$freeze_time == 4)
 
 #do t-test
+t.test(zerohour$count~zerohour$male_geno)
 t.test(threehour$count~threehour$male_geno)
 t.test(fourday$count~fourday$male_geno)
 
 #do wilcoxon test as well 
+wilcox.test(count ~ male_geno, data=zerohour)
 wilcox.test(count ~ male_geno, data = threehour)
 wilcox.test(count ~ male_geno, data = fourday)
 
 #import mp proportion data
-mp = read.csv("56g_mp_proportions.csv")
+mp = read.csv("~/56g_mp_proportions.csv")
 
 #explicitly order the levels within genotype so the control is first in the prop.table and the graph
 mp$male_geno <- factor(mp$male_geno, levels = c("CyO", "56g"))
@@ -1520,7 +1197,7 @@ number: number of females that fall into each class in recep category
 
 ```{r}
 #import data
-tubkd = read.csv("tubgal4_counts.csv")
+tubkd = read.csv("~/tubgal4_counts.csv")
 
 #get data into "long form" for linear models egg lay
 tubkd_long = tubkd %>%
@@ -1559,7 +1236,7 @@ model1=glmer(eggs ~ Genotype*day + (1|Vial), family=poisson, data=tubkd_long)
 emmeans(model1, pairwise ~ Genotype | day)
 
 #tubgal4 remating data
-tub_remating = read.csv("tubgal4_remating.csv")
+tub_remating = read.csv("~/tubgal4_remating.csv")
 
 #make prop.table
 table1 = table(tub_remating$mated, tub_remating$male_geno)
@@ -1579,31 +1256,33 @@ plot2
 ```
 
 ##obp56g RNAi experiments (crebA-GAL4)
-definition of variables (counts):
-male_geno: genotype of male CS female mated to. wt=CrebA-GAL4>w1118; kd=CrebA-GAL4>obp56gRNAi
+definition of variables (creb_counts, egg counts):
+male_geno: genotype of male CS female mated to. crebw1118=CrebA-GAL4>w1118; creb56g=CrebA-GAL4>obp56gRNAi
 vial: vial CS female placed into
-intro: time at which male was added to the vial
-start: time at which flies began copulation
-done: time at which flies finished copulation
 d_1 through d_4: number of eggs each female laid from days 1-4 post-mating
 egg_tot: sum of eggs from d_1 through d_4
 recep: Y/N if that female remated with a CS male 4 days post-mating
+rep: replicate of experiment
 
-definition of variables (mp proportions):
+definition of variables (creb_recep, remating rates)
 vial: vial: vial CS female placed into
-male_geno: genotype of male CS female mated to. wt=CrebA-GAL4>w1118; kd=CrebA-GAL4>obp56gRNAi
-mated: Y/N if that particular female mated (Y for all)
-start: time at which flies began copulation
-end: time at which flies finished copulation
-notes: anything interesting observed during course of experiments
-plug: Y/N if a mating plug was observed in the female bursa immediately after the end of mating
+male_geno: genotype of male CS female mated to. crebw1118=CrebA-GAL4>w1118; creb56g=CrebA-GAL4>obp56gRNAi
+remated: Y/N if the CS female remated on the fourth day after mating
+rep: replicate of experiment
+
+definition of variables (crebgal4_mp_prop, mating plug proportions):
+vial: vial: vial CS female placed into
+male_geno: genotype of male CS female mated to. crebw1118=CrebA-GAL4>w1118; creb56g=CrebA-GAL4>obp56gRNAi
+mp: Y/N if a mating plug was observed in the female bursa immediately after the end of mating
+rep: replicate of experiment
 
 ```{r}
+###egg lay
 #import the data
-creb_counts = read.csv("crebgal4_counts.csv")
+creb_counts = read.csv("~/crebgal4.csv")
 
 #reorder male_geno so control appears first in the graph
-creb_counts$male_geno <- factor(creb_counts$male_geno, levels = c("wt", "kd"))
+creb_counts$male_geno <- factor(creb_counts$male_geno, levels = c("crebw1118", "creb56g"))
 
 #get data into "long form" for linear models egg lay
 creb_counts_long = creb_counts %>%
@@ -1615,40 +1294,37 @@ creb_counts_long = creb_counts %>%
 creb_counts_long$day = as.factor(creb_counts_long$day)
 
 #make plot
-plot = ggplot(data=creb_counts_long, 
-       aes(x=day, 
-           y=eggs, color=male_geno, fill=male_geno)) + 
-  geom_dotplot(binaxis='y', stackdir = 'center', dotsize=0.6, position=position_dodge(1), alpha = 0.75) + 
-  #scale_fill_manual(values=pal)+
-  facet_grid(. ~ day, scales="free_x", space='free_x', labeller=label_both) +
-  #facet_grid(gene ~ day) +
-  labs(x="Day", y="Eggs Laid")+
+plot = ggplot(data=egg_long, 
+       aes(x=male_geno, 
+           y=eggs, color=male_geno)) +
+  facet_grid(. ~ day) +
+  labs(x="Male Genotype", y="Eggs laid (total)")+
   theme_classic()+
-  expand_limits(x = 1) +
   theme(panel.spacing = unit(1, "lines")) + 
   theme(strip.text.x = element_text(colour = "black")) +
-  theme(strip.background = element_blank()) 
-plot
+  theme(strip.background = element_blank())+
+  geom_quasirandom(dodge.width=.9,alpha=.4) 
 
-
-p = plot + stat_summary(fun.data=mean_se, fun.args = list(mult=1), 
-                 geom="errorbar", position=position_dodge(1), color="gray48", width=0.05, size=0.4) +      stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) + theme(panel.spacing = unit(2, "lines"))
+p = plot + stat_summary(fun.data=mean_se, fun.args=list(mult=1), geom="errorbar", position=position_dodge(1), color="gray48", width=0.3, size=0.6) + stat_summary(fun.y=mean, geom="point", color="gray48", position=position_dodge(1)) 
 
 #linear model
-model1 = glmer(eggs ~ male_geno + day + (1|vial), family=poisson, data=creb_counts_long)
+model1 = glmer(eggs ~ male_geno + day + (1|rep) + (1|vial), family=poisson, data=creb_counts_long)
 summary(model1)
-model2 = glmer(eggs ~ day + (1|vial), family=poisson, data=creb_counts_long)
+model2 = glmer(eggs ~ day + (1| rep) + (1|vial), family=poisson, data=creb_counts_long)
 summary(model2)
 anova(model2, model1)
 
-#marginal mean comparison
-model1=glmer(eggs~male_geno*day + (1|vial), family=poisson, data=creb_counts_long)
+#emmeans comparison
+model1=glmer(eggs~male_geno*day + (1|rep) + (1|vial), family=poisson, data=creb_counts_long)
 emmeans(model1, pairwise ~ male_geno | day)
 
+###remating rates
+creb_recep=read.csv("~/creb_remating.csv")
+creb_recep$male_geno <- factor(creb_recep$male_geno, levels = c("crebw1118", "creb56g"))
 #make proportion table to see proportion of females that remated @ 4 days. 
-table1 = table(creb_counts$recep, creb_counts$male_geno)
+table1 = table(creb_recep$remated, creb_recep$male_geno)
 table1
-prop_table1 = prop.table(table(creb_counts$recep, creb_counts$male_geno), 2)
+prop_table1 = prop.table(table(creb_recep$remated, creb_recep$male_geno), 2)
 prop_table1
 
 #transform to percent
@@ -1657,18 +1333,18 @@ prop1
 
 fisher.test(table1)
 
-plot = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Female Remating Rate (%)", legend=rownames(prop1))
+remating_plot = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Proportion of females", legend=rownames(prop1))
 
-#mp proportions
+###mp proportions
 #import data
-crebgal4_mp_prop=read.csv("crebgal4_mp_proportions.csv")
+crebgal4_mp_prop=read.csv("~/crebgal4_mp.csv")
 #reorder male_geno so control appears first in the graph
-crebgal4_mp_prop$male_geno <- factor(crebgal4_mp_prop$male_geno, levels = c("wt", "kd"))
+crebgal4_mp_prop$male_geno <- factor(crebgal4_mp_prop$male_geno, levels = c("crebw1118", "creb56g"))
 
 #make proportion table to see proportion of females with mating plugs in bursa
-table1 = table(crebgal4_mp_prop$plug, crebgal4_mp_prop$male_geno)
+table1 = table(crebgal4_mp_prop$mp, crebgal4_mp_prop$male_geno)
 table1
-prop_table1 = prop.table(table(crebgal4_mp_prop$plug, crebgal4_mp_prop$male_geno), 2)
+prop_table1 = prop.table(table(crebgal4_mp_prop$mp, crebgal4_mp_prop$male_geno), 2)
 prop_table1
 
 #transform to percent
@@ -1677,7 +1353,7 @@ prop1
 
 fisher.test(table1)
 
-plot = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Females with mating plugs in bursa (%)", legend=rownames(prop1))
+mp_plot = barplot(prop1, col=c("indianred2", "lightblue"), xlab="Male Genotype", ylim=c(0,100), ylab="Females with mating plugs in bursa (%)", legend=rownames(prop1))
 
 
 ```
